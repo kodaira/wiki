@@ -1,1 +1,1 @@
-Welcome to the [wiki](/https://github.com/kodaira/wiki/wiki)!
+Welcome to the [Wiki](https://github.com/kodaira/wiki/wiki)!
