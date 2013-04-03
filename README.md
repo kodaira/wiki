@@ -1,1 +1,1 @@
-read_me
+Welcome to the [wiki](wiki)!
