@@ -1,0 +1,260 @@
+# Nginx
+local install  
+<http://www.mk-mode.com/octopress/2013/01/25/nginx-centos-install-by-src/>
+
+## reference
+* <http://higelog.brassworks.jp/?p=1760>
+
+## need
+    sudo yum install gcc pcre pcre-devel zlib zlib-devel openssl openssl-devel
+
+## install
+    wget http://nginx.org/download/nginx-1.3.9.tar.gz
+    tar xvzf nginx-1.3.9.tar.gz 
+    cd nginx-1.3.9.tar.gz 
+    ./configure --prefix=/usr/local/nginx-1.3.9 \
+    --user=nginx \
+    --group=nginx \
+    --pid-path=/var/run/nginx.pid \
+    --error-log-path=/var/log/nginx/error.log \
+    --http-log-path=/var/log/nginx/access.log \
+    --lock-path=/var/run/nginx.lock \
+    --with-http_ssl_module \
+    --with-http_realip_module
+    make
+    sudo make install
+    sudo ln -s /usr/local/nginx-1.3.9 /usr/local/nginx
+
+## setting
+#### vi /usr/local/nginx-1.3.9/config/nginx.config
+    worker_processes 2;
+
+    events {
+      worker_connections 1024;
+    }
+
+    http {
+      upstream backend {
+        server 127.0.0.1:5000;
+      }
+       upstream backend2 {
+        server 127.0.0.1:5001;
+      }
+      server {
+        listen 80;
+        server_name localhost;
+
+        #root /var/www/myapp/public;
+        root /var/www/;
+
+        access_log /var/log/access.log;
+        error_log  /var/log/error.log;
+
+        proxy_connect_timeout 60;
+        proxy_read_timeout    60;
+        proxy_send_timeout    60;
+
+
+
+        location /myapp {
+          try_files $uri $uri.html $uri/index.html @backend;
+        }
+
+
+        location /myapp2 {
+          try_files $uri $uri.html $uri/index.html @backend2;
+        }
+
+
+
+    #    location / {
+        location @backend {
+          if (-f $request_filename) {
+            break;
+          }
+
+          proxy_set_header X-Real-IP  $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header Host $http_host;
+          proxy_pass http://backend;
+        }
+
+        location ~* \.(ico|css|js|gif|jpe?g|png)(\?[0-9]+)?$ {
+          expires 1y;
+        }
+
+        location @backend2 {
+          if (-f $request_filename) {
+            break;
+          }
+
+          proxy_set_header X-Real-IP  $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header Host $http_host;
+          proxy_pass http://backend2;
+        }
+
+        location ~* \.(ico|css|js|gif|jpe?g|png)(\?[0-9]+)?$ {
+          expires 1y;
+        }
+      }
+    }
+
+
+## service
+* copy from [nginx](https://github.com/kodaira/wiki/blob/master/nginx/nginx) to /etc/init.d/
+* sudo chmod +x /etc/init.d/ngix
+* service start nginx
+* sudo chkconfig nginx on
+
+## rails
+### install
+    rpm i pcre-6.6-2.el5_1.7.i386.rpm
+    rpm i pcre-devel-6.6-2.el5_1.7.i386.rpm
+    gem i --local bundler-1.3.5
+
+### deploy
+    cd /var/www/rails
+    cp myapp_develop_pc.tar.gz .
+    tar xvzf myapp_develop_pc.tar.gz
+    cd myapp
+    bunlde exec rails -v  --> rails4
+    bundle install --path=vendor/bundle --local
+    bundle exec rake db:create
+    bundle exec rake db:migrate
+
+    cd /var/www
+    ln -s /var/www/rails/myapp myapp
+    ln -s /var/www/rails/myapp2 myapp2
+
+### unicorn setting
+#### rm config.su
+    cd /var/www/rais/myapp
+    mv config.su config.su_org
+
+#### vi /var/www/rails/myapp/config/unicorn.rb
+    worker_processes 2
+    working_directory "/var/www/rails/myapp"
+
+    listen "/tmp/unicorn.sock"
+    pid "/tmp/unicorn.pid"
+
+    timeout 60
+
+    preload_app true # no down time
+
+    stdout_path "/var/www/rails/myapp/log/unicorn.stdout.log"
+    stderr_path "/var/www/rails/myapp/log/unicorn.stderr.log"
+
+    GC.respond_to?(:copy_on_write_friendly=) and GC.copy_on_write_friendly = true
+
+    before_fork do |server, worker|
+      defined?(ActiveRecord::Base) and ActiveRecord::Base.connection.disconnect!
+
+      old_pid = "#{server.config[:pid]}.oldbin"
+        if old_pid != server.pid
+          begin
+            sig = (worker.nr + 1) >= server.worker_processes ? :QUIT : :TTOU
+            Process.kill(sig, File.read(old_pid).to_i)
+          rescue Errno::ENOENT, Errno::ESRCH
+          end
+        end
+
+        sleep 1
+      end
+
+    after_fork do |server, worker|
+
+      defined?(ActiveRecord::Base) and ActiveRecord::Base.establish_connection
+    end
+
+#### vi /var/www/rails/myapp2/config/unicorn.rb
+same : myapp -> myapp2
+
+### unicorn start
+    cd /var/www/rais/myapp
+    bundle exec unicorn_rails -E production -p 5000 --path /myapp -D
+    http://localhost:5000
+<!-- -->
+
+    cd /var/www/rais/myapp2
+    bundle exec unicorn_rails -E production -p 5001 --path /myapp2 -D
+    http://localhost:5001
+
+### demon service
+* http://n.blueblack.net/articles/2012-07-29_01_nginx_unicorn_redmine_02/
+
+## nginx start
+    service nginx start
+    http://server_name
+
+## unicorn stop
+    pgrep -f "unicorn_rails master"
+    12345
+    kill -quit 12345
+
+## rails2
+```
+gem isntall unicorn
+Successfully installed kgio-2.8.0
+Successfully installed raindrops-0.10.0
+Successfully installed unicorn-4.6.2
+gem install rails -v 2.3.5
+gem uninstall rack
+gem install rack -v 1.0.1
+```
+## puma
+
+### jungle install
+* [jungle](https://github.com/puma/puma/tree/master/tools/jungle)
+  * no copy unstart
+
+### vi /ets/nginx.conf
+
+```
+worker_processes 2;
+
+events {
+  worker_connections 1024;
+}
+
+http {
+
+  upstream myapp {
+    server unix:///var/www/rails/myapp/tmp/puma/puma.sock;
+  }
+
+  server {
+    server_name localhost; # change to match your URL
+    root /var/www/rails/myapp/public; # I assume your app is located at that location
+
+    location / {
+      proxy_pass http://myapp; # match the name of upstream directive which is defined above
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+  }
+}
+```
+
+<!-- -->
+### for CentOS install
+[for Centos](https://gist.github.com/niwo/4526179)
+
+    no copy /usr/local/bin/run-puma
+<!-- -->
+
+    /etc/init.d/puma add /var/www/rails/myapp rails /var/www/rails/myapp/config/puma.rb /var/www/rails/myapp/log/puma.log
+<!-- -->
+
+    cd /var/www/rails/myapp/tmp
+    mkdir puma
+    chmod rails.rails puma
+
+### start service
+    service puma start
+    servcie nginx start
+
+## Rails
+* [サブディレクトリで Rails アプリを分けるための nginx の設定](http://qiita.com/iriya-ufo@github/items/0c2122550e69d9b0aff6)
+* [nginx+Unicornでサブディレクトリでアプリを動かす](http://higelog.brassworks.jp/?p=1760)
